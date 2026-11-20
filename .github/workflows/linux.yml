@@ -1,0 +1,45 @@
+name: Localized Linux acceptance
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '26.13.1'
+      - name: Fetch and verify the localized Linux source
+        run: |
+          git init source
+          git -C source fetch --depth=1 --no-tags --no-recurse-submodules https://github.com/Z-6354/t3code-nightly-e2e-l10nflow-build-6cfc03c6-479.git 2d37def6e6cd020edabc8dd4b3a00cd2b4a37d77
+          git -C source checkout --detach --no-recurse-submodules FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = 2d37def6e6cd020edabc8dd4b3a00cd2b4a37d77
+          curl -fsS --max-time 10 https://registry.npmjs.org/pnpm/12.14.0 -o /dev/null
+          npm install -g pnpm@12.14.0
+          cd source
+          pnpm install --frozen-lockfile
+      - name: Install Linux packaging prerequisites
+        run: |
+          curl -fsS --max-time 10 https://archive.ubuntu.com/ubuntu/dists/noble/Release -o /dev/null
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev pkg-config imagemagick
+      - name: Build Linux x64 AppImage
+        working-directory: source
+        env:
+          T3CODE_DESKTOP_VERSION: '1.0.3'
+          T3CODE_DESKTOP_SIGNED: 'false'
+          T3CODE_DESKTOP_MOCK_UPDATES: 'false'
+        run: |
+          unset GITHUB_REPOSITORY T3CODE_DESKTOP_UPDATE_REPOSITORY
+          pnpm run dist:desktop:linux
+          mapfile -t files < <(find release -maxdepth 1 -type f -name '*.AppImage')
+          test "${#files[@]}" = 1
+          cp "${files[0]}" "$RUNNER_TEMP/T3-Code-1.0.3-x64.AppImage"
+          sha256sum "$RUNNER_TEMP/T3-Code-1.0.3-x64.AppImage"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: localized-linux
+          path: ${{ runner.temp }}/T3-Code-1.0.3-x64.AppImage
+          if-no-files-found: error
